@@ -7,6 +7,12 @@ library("here")
 # Output file
 OUTPUT_FILE <- here("data", "meteorites.parquet")
 
+# Create data directory if it doesn't exist
+if (!dir.exists(here("data"))) {
+  dir.create(here("data"), recursive = TRUE)
+  cat("Created data directory\n")
+}
+
 # JSON query with field mapping from data docs
 get_meteorites_from_nasa_as_duckdb <- function() {
   cat(strrep("=", 60), "\n")
