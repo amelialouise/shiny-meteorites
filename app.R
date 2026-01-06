@@ -57,6 +57,13 @@ generate_meteorite_tile <- function(con, z, x, y, filters) {
     "mass_tons > 0"
   )
 
+  if (!is.null(filters$discovery_filter) && filters$discovery_filter != "all") {
+    where_conditions <- c(
+      where_conditions,
+      sprintf("fall = '%s'", filters$discovery_filter)
+    )
+  }
+
   if (!is.null(filters$size_filter) && filters$size_filter != "all") {
     where_conditions <- c(
       where_conditions,
@@ -232,6 +239,13 @@ ui <- page_fillable(
       ),
 
       textInput("name_search", "Name:", value = "", placeholder = "Search..."),
+
+      selectInput(
+        "discovery_filter",
+        "Discovery:",
+        choices = c("All" = "all", "Fell" = "Fell", "Found" = "Found"),
+        selected = "all"
+      ),
 
       selectInput(
         "size_filter",
@@ -443,7 +457,15 @@ server <- function(input, output, session) {
       ),
       "mass_tons > 0"
     )
+    # Discovery filter
+    if (!is.null(input$discovery_filter) && input$discovery_filter != "all") {
+      conditions <- c(
+        conditions,
+        sprintf("fall = '%s'", input$discovery_filter)
+      )
+    }
 
+    # Name filter
     if (!is.null(input$name_search) && input$name_search != "") {
       conditions <- c(
         conditions,
@@ -451,6 +473,7 @@ server <- function(input, output, session) {
       )
     }
 
+    # Size filter
     if (input$size_filter != "all") {
       conditions <- c(
         conditions,
@@ -458,6 +481,7 @@ server <- function(input, output, session) {
       )
     }
 
+    # Era filter
     if (input$era_filter != "all") {
       conditions <- c(conditions, sprintf("era = '%s'", input$era_filter))
     }
@@ -596,11 +620,15 @@ server <- function(input, output, session) {
         source = "meteorites",
         source_layer = "meteorites",
         circle_radius = list(
+          "property" = "mass_tons",
+          "type" = "exponential",
           "base" = 1.5,
           "stops" = list(
-            list(0, 3),
-            list(5, 5),
-            list(10, 7)
+            list(0.001, 3), # Tiny meteorites
+            list(0.1, 5), # Small
+            list(1, 7), # Medium
+            list(10, 10), # Large
+            list(100, 15) # Massive
           )
         ),
         circle_color = list(
@@ -619,7 +647,7 @@ server <- function(input, output, session) {
         circle_stroke_color = "#ffffff",
         popup = "info",
         hover_options = list(
-          circle_radius = 10,
+          circle_radius = 12,
           circle_opacity = 1
         )
       ) |>
@@ -644,6 +672,7 @@ server <- function(input, output, session) {
       "year_range",
       value = c(metadata$min_year, metadata$max_year)
     )
+    updateSelectInput(session, "discovery_filter", selected = "all")
     updateTextInput(session, "name_search", value = "")
     updateSelectInput(session, "size_filter", selected = "Large (20kg-5t)")
     updateSelectInput(session, "era_filter", selected = "all")
@@ -778,7 +807,7 @@ server <- function(input, output, session) {
             "Mass (g)"
           ),
           options = list(
-            pageLength = 15,
+            pageLength = 10,
             order = list(list(8, 'desc')),
             scrollX = TRUE
           ),
