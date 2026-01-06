@@ -1,0 +1,48 @@
+library/
+local/
+cellar/
+lock/
+python/
+sandbox/
+staging/
+# Data files (large, generated locally)
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# misc en temp
+sandbox/*
+renv/staging/*
+renv/library/*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.env
+venv/
+.venv/
+
+# R
+.Rhistory
+.Rdata
+.RData
+.Ruserdata
+.Rproj.user/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+NUL
+*.log
+*.tmp
