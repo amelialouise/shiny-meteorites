@@ -12,6 +12,9 @@ staging/
 *.parquet
 data/
 
+# Deployments
+.posit
+
 # misc en temp
 sandbox/
 
