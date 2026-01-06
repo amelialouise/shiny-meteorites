@@ -2,7 +2,7 @@
 
 An interactive R Shiny application for exploring meteorite landings data from NASA. Visualize the global distribution of meteorite discoveries and patterns over time from as early as 861 ([Nogata](https://www.lpi.usra.edu/meteor/metbull.php?code=16988))!
 
-##[Live App Hosted on Posit Connect](https://019b952b-4b9f-fdf7-72ed-36a63f82707c.share.connect.posit.cloud/)
+## [Live App Hosted on Posit Connect](https://019b952b-4b9f-fdf7-72ed-36a63f82707c.share.connect.posit.cloud/)
 
 ![Shiny app screenshot](images/meteorites-explorer-screenshot.png)
 
