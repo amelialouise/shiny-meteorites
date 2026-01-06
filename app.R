@@ -526,7 +526,7 @@ server <- function(input, output, session) {
       con,
       sprintf(
         "
-      SELECT mass_tons
+      SELECT mass_tons, size_category
       FROM meteorites
       WHERE %s
     ",
@@ -548,20 +548,23 @@ server <- function(input, output, session) {
       )
     }
 
-    log_mass <- log10(data$mass_tons)
-    dens <- density(log_mass, na.rm = TRUE)
-
-    plot_ly() %>%
-      add_lines(
-        x = 10^dens$x,
-        y = dens$y,
-        fill = 'tozeroy',
-        fillcolor = 'rgba(102, 126, 234, 0.3)',
-        line = list(color = '#667eea', width = 2)
-      ) %>%
+    plot_ly(
+      data,
+      x = ~mass_tons,
+      type = "histogram",
+      marker = list(color = "#667eea", line = list(color = "white", width = 1)),
+      nbinsx = 50
+    ) %>%
       layout(
-        xaxis = list(title = "Mass (tons)", type = "log", showgrid = FALSE),
-        yaxis = list(title = "Density", showgrid = FALSE),
+        xaxis = list(
+          title = "Mass (tons)",
+          type = "log10",
+          showgrid = FALSE
+        ),
+        yaxis = list(
+          title = "Count",
+          showgrid = FALSE
+        ),
         margin = list(l = 40, r = 10, t = 10, b = 40),
         paper_bgcolor = 'rgba(0,0,0,0)',
         plot_bgcolor = 'rgba(0,0,0,0)',
