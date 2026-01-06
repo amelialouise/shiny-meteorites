@@ -10,11 +10,10 @@ staging/
 *.duckdb
 *.duckdb.wal
 *.parquet
+data/
 
 # misc en temp
-sandbox/*
-renv/staging/*
-renv/library/*
+sandbox/
 
 # Python
 __pycache__/

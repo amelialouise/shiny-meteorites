@@ -1,8 +1,9 @@
 # Build a DuckDB database with spatial index from the meteorites parquet file.
 library("duckdb")
+library("here")
 
-PARQUET_FILE <- "data/meteorites.parquet"
-DB_FILE <- "data/meteorites_spatial.duckdb"
+PARQUET_FILE <- here("data", "meteorites.parquet")
+DB_FILE <- here("data", "meteorites_spatial.duckdb")
 
 build_spatial_db <- function() {
   cat(strrep("=", 60), "\n")
@@ -116,7 +117,7 @@ build_spatial_db <- function() {
   cat(strrep("=", 60), "\n")
   cat("Database build complete!\n")
   cat(strrep("=", 60), "\n")
-  cat(sprintf("Meteorites: %s\n", format(count, big.mark = ",")))
+  cat(sprintf("Mappable Meteorites: %s\n", format(count, big.mark = ",")))
   cat(sprintf("Database size: %.1f MB\n", size_mb))
   cat("Indexes: geometry (R-tree)\n")
   cat(sprintf("Output: %s\n", DB_FILE))

@@ -2,9 +2,10 @@
 library("duckdb")
 library("dplyr")
 library("stringr")
+library("here")
 
 # Output file
-OUTPUT_FILE <- "data/meteorites.parquet"
+OUTPUT_FILE <- here("data", "meteorites.parquet")
 
 # JSON query with field mapping from data docs
 get_meteorites_from_nasa_as_duckdb <- function() {
@@ -98,7 +99,7 @@ get_meteorites_from_nasa_as_duckdb <- function() {
   cat(strrep("=", 60), "\n")
   cat("Fetching data from NASA API - this can take 5-10 minutes!\n")
   cat("Note: DuckDB's progress bar has limited support in R.\n")
-  cat("      The download is working even if no progress or only 0% shows!\n")
+  cat("The download is working even if no progress or only 0% shows!\n")
   cat(strrep("=", 60), "\n\n")
   flush.console()
 
