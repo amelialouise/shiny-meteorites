@@ -5,44 +5,25 @@ lock/
 python/
 sandbox/
 staging/
-# Data files (large, generated locally)
-*.duckdb
-*.duckdb.wal
-*.parquet
-
-# misc en temp
-sandbox/*
-renv/staging/*
-renv/library/*
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.Python
-*.so
-.env
-venv/
-.venv/
-
-# R
+.Rproj.user
 .Rhistory
-.Rdata
 .RData
 .Ruserdata
-.Rproj.user/
+.venv
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+ci
+check
+cran-comments.md
+CRAN-RELEASE
+docs
+internal
+renv.Rproj
+revdep
+revdeps
 
-# OS
-.DS_Store
-Thumbs.db
+inst/doc
+renv/cellar
 
-# Temp files
-NUL
-*.log
-*.tmp
+/*.Rprof
+/*.tar.gz
+/*.backup
