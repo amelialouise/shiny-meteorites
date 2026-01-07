@@ -13,7 +13,7 @@ library(mapgl) # Load mapgl last to prioritize its functions
 # Configuration
 # ============================================================================
 
-DB_PATH <- "data/meteorites_spatial.duckdb"
+DB_PATH <- "data/meteorites.duckdb"
 options(sass.cache = FALSE)
 
 # ============================================================================
@@ -59,8 +59,6 @@ ensure_connection <- function() {
       try(dbDisconnect(con), silent = TRUE)
     }
     con <<- dbConnect(duckdb(), DB_PATH, read_only = TRUE)
-    dbExecute(con, "INSTALL spatial;")
-    dbExecute(con, "LOAD spatial;")
   }
   return(con)
 }
