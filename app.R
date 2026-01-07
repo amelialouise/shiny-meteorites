@@ -1,151 +1,46 @@
 library(shiny)
-library(mapgl)
-library(plotly)
-library(DT)
 library(dplyr)
 library(duckdb)
 library(DBI)
-library(httpuv)
 library(bslib)
+library(DT)
+library(plotly)
+library(sf)
+library(mapgl) # Load mapgl last to prioritize its functions
+
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
 DB_PATH <- "data/meteorites_spatial.duckdb"
-TILE_SERVER_PORT <- 8082
 options(sass.cache = FALSE)
 
 # ============================================================================
-# Tile Server Functions
+# Helper Functions
 # ============================================================================
 
-parse_tile_path <- function(path) {
-  pattern <- "^/tiles/(\\d+)/(\\d+)/(\\d+)\\.pbf$"
-  matches <- regmatches(path, regexec(pattern, path))[[1]]
-
-  if (length(matches) == 4) {
-    list(
-      z = as.integer(matches[2]),
-      x = as.integer(matches[3]),
-      y = as.integer(matches[4])
-    )
-  } else {
-    NULL
-  }
+format_mass <- function(mass_tons) {
+  case_when(
+    mass_tons * 1e9 < 1e3 ~ paste0(round(mass_tons * 1e9, 1), " mg"),
+    mass_tons * 1e6 < 1e3 ~ paste0(round(mass_tons * 1e6, 1), " g"),
+    mass_tons * 1e3 < 1e3 ~ paste0(round(mass_tons * 1e3, 1), " kg"),
+    .default = paste0(round(mass_tons, 1), " tons")
+  )
 }
 
-tile_to_bbox <- function(z, x, y) {
-  n <- 2^z
-  min_lon <- x / n * 360 - 180
-  max_lon <- (x + 1) / n * 360 - 180
-
-  lat_rad_max <- atan(sinh(pi * (1 - 2 * y / n)))
-  max_lat <- lat_rad_max * 180 / pi
-
-  lat_rad_min <- atan(sinh(pi * (1 - 2 * (y + 1) / n)))
-  min_lat <- lat_rad_min * 180 / pi
-
-  c(min_lon = min_lon, min_lat = min_lat, max_lon = max_lon, max_lat = max_lat)
+get_size_color <- function(mass_tons) {
+  case_when(
+    mass_tons < 0.001 ~ "#4A5568", # Tiny - dark gray
+    mass_tons < 0.005 ~ "#F7DC6F", # Small - light yellow
+    mass_tons < 0.02 ~ "#F39C12", # Medium - orange
+    mass_tons < 5 ~ "#E74C3C", # Large - red
+    TRUE ~ "#C0392B" # Massive - dark red
+  )
 }
 
-generate_meteorite_tile <- function(con, z, x, y, filters) {
-  bbox <- tile_to_bbox(z, x, y)
-
-  where_conditions <- c(
-    sprintf("year BETWEEN %d AND %d", filters$year_min, filters$year_max),
-    "mass_tons > 0"
-  )
-
-  if (!is.null(filters$discovery_filter) && filters$discovery_filter != "all") {
-    where_conditions <- c(
-      where_conditions,
-      sprintf("fall = '%s'", filters$discovery_filter)
-    )
-  }
-
-  if (!is.null(filters$size_filter) && filters$size_filter != "all") {
-    where_conditions <- c(
-      where_conditions,
-      sprintf("size_category = '%s'", filters$size_filter)
-    )
-  }
-
-  if (!is.null(filters$era_filter) && filters$era_filter != "all") {
-    where_conditions <- c(
-      where_conditions,
-      sprintf("era = '%s'", filters$era_filter)
-    )
-  }
-
-  if (!is.null(filters$name_search) && filters$name_search != "") {
-    where_conditions <- c(
-      where_conditions,
-      sprintf("name ILIKE '%%%s%%'", filters$name_search)
-    )
-  }
-
-  where_clause <- paste(where_conditions, collapse = " AND ")
-
-  query <- sprintf(
-    "
-  SELECT ST_AsMVT(tile, 'meteorites') as mvt
-  FROM (
-    SELECT
-      ST_AsMVTGeom(
-        ST_Transform(geom, 'EPSG:4326', 'EPSG:3857', TRUE),
-        ST_Extent(ST_TileEnvelope(%d, %d, %d))
-      ) AS geometry,
-      name,
-      catalog_id,
-      reclass,
-      nametype,
-      mass_tons,
-      year,
-      era,
-      size_category,
-      lpi_entry,
-      CONCAT_WS(' | ',
-          name,
-          CASE 
-            WHEN mass_tons * 1e9 < 1e3 THEN CONCAT('Mass: ', CAST(round(mass_tons*1e9,2) AS VARCHAR), ' mg') 
-            WHEN mass_tons * 1e6 < 1e3 THEN CONCAT('Mass: ', CAST(round(mass_tons*1e6, 1) as VARCHAR), ' g')
-            WHEN mass_tons * 1e3 < 1e3 THEN CONCAT('Mass: ', CAST(round(mass_tons*1e3, 1) AS VARCHAR), ' kg')
-            WHEN mass_tons >= 1 THEN CONCAT('Mass: ', CAST(round(mass_tons, 1) AS VARCHAR), ' tons')
-            END,
-          CONCAT('\nYear: ', CAST(year AS INTEGER))
-          ) as info
-    FROM meteorites
-    WHERE %s
-      AND lon BETWEEN %f AND %f
-      AND lat BETWEEN %f AND %f
-  ) AS tile
-  WHERE geometry IS NOT NULL
-",
-    z,
-    x,
-    y,
-    where_clause,
-    bbox["min_lon"],
-    bbox["max_lon"],
-    bbox["min_lat"],
-    bbox["max_lat"]
-  )
-
-  tryCatch(
-    {
-      result <- dbGetQuery(con, query)
-      if (nrow(result) > 0 && !is.null(result$mvt[[1]])) {
-        result$mvt[[1]]
-      } else {
-        raw(0)
-      }
-    },
-    error = function(e) {
-      message("Tile error: ", e$message)
-      raw(0)
-    }
-  )
+get_marker_size <- function(mass_tons) {
+  pmax(3, pmin(15, log10(mass_tons * 1000) * 2 + 5))
 }
 
 # ============================================================================
@@ -159,13 +54,7 @@ dbExecute(con, "LOAD spatial;")
 
 metadata <- dbGetQuery(
   con,
-  "
-  SELECT 
-    MIN(year) as min_year,
-    MAX(year) as max_year,
-    COUNT(*) as total_count
-  FROM meteorites
-"
+  "SELECT MIN(year) as min_year, MAX(year) as max_year, COUNT(*) as total_count FROM meteorites"
 )
 
 size_categories <- c(
@@ -211,14 +100,21 @@ ui <- page_fillable(
     ))
   ),
 
-  # Full-screen map
   maplibreOutput("map", height = "100%"),
 
-  # Floating sidebar
+  conditionalPanel(
+    condition = "$('html').hasClass('shiny-busy')",
+    div(
+      class = "text-center mt-2",
+      HTML('<div class="spinner-border spinner-border-sm text-primary"></div>'),
+      " Loading..."
+    )
+  ),
+
   absolutePanel(
     top = 20,
     right = 20,
-    width = 320,
+    width = 360,
     class = "card shadow",
     style = "background: white; border-radius: 8px; padding: 20px; max-height: 90vh; overflow-y: auto;",
 
@@ -226,16 +122,22 @@ ui <- page_fillable(
 
     div(
       class = "filter-section",
-      h5("🔍 Filters"),
+      h5("🔍 Click 'Apply Filters' to update the map"),
 
-      sliderInput(
-        "year_range",
-        "Year:",
-        sep = "",
-        min = metadata$min_year,
-        max = metadata$max_year,
-        value = c(metadata$min_year, metadata$max_year),
-        step = 10
+      # Era filter
+      selectInput(
+        "era_filter",
+        "Time Period:",
+        choices = c(
+          "All Eras" = "all",
+          "Unknown/Missing Years" = "unknown",
+          "Ancient (861-1799)" = "ancient",
+          "Historical (1800-1899)" = "historical",
+          "Early Modern (1900-1949)" = "early_modern",
+          "Late Modern (1950-1999)" = "late_modern",
+          "Recent (2000+)" = "recent"
+        ),
+        selected = "late_modern" # Make sure this matches a valid choice
       ),
 
       textInput("name_search", "Name:", value = "", placeholder = "Search..."),
@@ -252,20 +154,6 @@ ui <- page_fillable(
         "Size:",
         choices = size_categories,
         selected = "Large (20kg-5t)"
-      ),
-
-      selectInput(
-        "era_filter",
-        "Era:",
-        choices = c(
-          "All" = "all",
-          "Ancient (pre-1800)" = "Ancient (pre-1800)",
-          "Historical (1800-1899)" = "Historical (1800-1899)",
-          "Early Modern (1900-1949)" = "Early Modern (1900-1949)",
-          "Late Modern (1950-1999)" = "Late Modern (1950-1999)",
-          "Recent (2000+)" = "Recent (2000+)"
-        ),
-        selected = "all"
       ),
 
       actionButton(
@@ -338,126 +226,30 @@ ui <- page_fillable(
 # ============================================================================
 
 server <- function(input, output, session) {
-  # Helper function to format mass
-  format_mass <- function(mass_tons) {
-    mass_mg <- mass_tons * 1e9
-    mass_g <- mass_tons * 1e6
-    mass_kg <- mass_tons * 1e3
-    ifelse(
-      mass_mg < 1e3,
-      paste0(round(mass_mg, 1), " mg"),
-      ifelse(
-        mass_g < 1e3,
-        paste0(round(mass_g, 1), " g"),
-        ifelse(
-          mass_kg < 1e3,
-          paste0(round(mass_kg, 1), " kg"),
-          paste0(round(mass_tons, 1), " tons")
-        )
-      )
-    )
-  }
-
-  # Start tile server
-  tile_server <- NULL
-
-  observe({
-    if (is.null(tile_server)) {
-      tile_app <- list(
-        call = function(req) {
-          path <- req$PATH_INFO
-
-          if (req$REQUEST_METHOD == "OPTIONS") {
-            return(list(
-              status = 200L,
-              headers = list(
-                "Access-Control-Allow-Origin" = "*",
-                "Access-Control-Allow-Methods" = "GET, OPTIONS"
-              ),
-              body = ""
-            ))
-          }
-
-          coords <- parse_tile_path(path)
-
-          if (!is.null(coords)) {
-            message(sprintf(
-              "Generating tile: z=%d x=%d y=%d",
-              coords$z,
-              coords$x,
-              coords$y
-            ))
-
-            filters <- list(
-              year_min = isolate(input$year_range[1]),
-              year_max = isolate(input$year_range[2]),
-              size_filter = isolate(input$size_filter),
-              era_filter = isolate(input$era_filter),
-              name_search = isolate(input$name_search)
-            )
-
-            tile_blob <- generate_meteorite_tile(
-              con,
-              coords$z,
-              coords$x,
-              coords$y,
-              filters
-            )
-            message(sprintf("Tile size: %d bytes", length(tile_blob)))
-
-            list(
-              status = 200L,
-              headers = list(
-                "Content-Type" = "application/vnd.mapbox-vector-tile",
-                "Access-Control-Allow-Origin" = "*",
-                "Cache-Control" = "no-cache"
-              ),
-              body = tile_blob
-            )
-          } else if (path == "/tiles.json") {
-            tilejson <- sprintf(
-              '{
-              "tilejson": "3.0.0",
-              "tiles": ["http://127.0.0.1:%d/tiles/{z}/{x}/{y}.pbf"],
-              "minzoom": 0,
-              "maxzoom": 14
-            }',
-              TILE_SERVER_PORT
-            )
-            list(
-              status = 200L,
-              headers = list(
-                "Content-Type" = "application/json",
-                "Access-Control-Allow-Origin" = "*"
-              ),
-              body = tilejson
-            )
-          } else {
-            list(status = 404L, body = "Not Found")
-          }
-        }
-      )
-
-      tile_server <<- startDaemonizedServer(
-        "127.0.0.1",
-        TILE_SERVER_PORT,
-        tile_app
-      )
-      message("Tile server started on port ", TILE_SERVER_PORT)
-    }
-  })
-
-  # Build WHERE clause
+  # Build WHERE clause function
   build_where_clause <- function() {
-    conditions <- c(
-      sprintf(
-        "year BETWEEN %d AND %d",
-        input$year_range[1],
-        input$year_range[2]
-      ),
-      "mass_tons > 0"
+    # Handle era filtering with explicit year ranges
+    year_condition <- switch(
+      input$era_filter,
+      "all" = "1=1",
+      "unknown" = "year IS NULL",
+      "ancient" = "year BETWEEN 861 AND 1799",
+      "historical" = "year BETWEEN 1800 AND 1899",
+      "early_modern" = "year BETWEEN 1900 AND 1949",
+      "late_modern" = "year BETWEEN 1950 AND 1999",
+      "recent" = "year >= 2000"
     )
-    # Discovery filter
+
+    # If switch returned NULL (no match), use fallback
+    if (is.null(year_condition)) {
+      year_condition <- "1=1"
+      cat("Using fallback condition\n")
+    }
+
+    # Debug: print the year condition
+    # Always include mass filter since unknown years do have mass data
+    conditions <- c(year_condition, "mass_tons > 0")
+
     if (!is.null(input$discovery_filter) && input$discovery_filter != "all") {
       conditions <- c(
         conditions,
@@ -465,7 +257,6 @@ server <- function(input, output, session) {
       )
     }
 
-    # Name filter
     if (!is.null(input$name_search) && input$name_search != "") {
       conditions <- c(
         conditions,
@@ -473,7 +264,6 @@ server <- function(input, output, session) {
       )
     }
 
-    # Size filter
     if (input$size_filter != "all") {
       conditions <- c(
         conditions,
@@ -481,13 +271,131 @@ server <- function(input, output, session) {
       )
     }
 
-    # Era filter
-    if (input$era_filter != "all") {
-      conditions <- c(conditions, sprintf("era = '%s'", input$era_filter))
-    }
-
     paste(conditions, collapse = " AND ")
   }
+
+  # Get filtered data for map
+  get_map_data <- reactive({
+    input$apply_filters
+
+    where_clause <- isolate(build_where_clause())
+
+    tryCatch(
+      {
+        data <- dbGetQuery(
+          con,
+          sprintf(
+            "SELECT name, lat, lon, mass_tons, year, size_category, catalog_id, reclass, era, fall, lpi_entry
+       FROM meteorites 
+       WHERE %s 
+       ORDER BY mass_tons DESC
+       LIMIT 8000",
+            where_clause
+          )
+        )
+
+        # Add popup text column
+        data$popup_text <- sprintf(
+          "<b>%s</b><br>Mass: %s<br>Year: %d<br>Type: %s<br><a href='%s' target='_blank'>More info</a>",
+          data$name,
+          sapply(data$mass_tons, format_mass),
+          data$year,
+          data$reclass,
+          data$lpi_entry
+        )
+
+        return(data)
+      },
+      error = function(e) {
+        showNotification(
+          paste("Error loading data:", e$message),
+          type = "error"
+        )
+        data.frame()
+      }
+    )
+  })
+
+  # Initialize and update map
+  output$map <- renderMaplibre({
+    maplibre(
+      center = c(11, -11),
+      zoom = 1,
+      style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+      projection = "mercator"
+    ) %>%
+      add_navigation_control(position = "top-left")
+  })
+
+  # Update map when data changes
+  # Update map when data changes
+  observeEvent(get_map_data(), {
+    data <- get_map_data()
+
+    if (nrow(data) == 0) {
+      return()
+    }
+
+    # Simple approach: recreate the map with new data
+    output$map <- renderMaplibre({
+      if (nrow(data) == 0) {
+        return(
+          maplibre(
+            center = c(11, -11),
+            zoom = 1,
+            style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+            projection = "mercator"
+          ) %>%
+            add_navigation_control(position = "top-left")
+        )
+      }
+
+      # Convert to sf object
+      data_sf <- data %>%
+        filter(!is.na(lon), !is.na(lat)) %>%
+        sf::st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+      maplibre(
+        center = c(mean(data$lon, na.rm = TRUE), mean(data$lat, na.rm = TRUE)),
+        zoom = 2,
+        style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        projection = "mercator"
+      ) %>%
+        add_source(id = "meteorites", data = data_sf) %>%
+        add_circle_layer(
+          id = "meteorites-circles",
+          source = "meteorites",
+          circle_radius = list(
+            "property" = "mass_tons",
+            "type" = "exponential",
+            "base" = 1.5,
+            "stops" = list(
+              list(0.001, 3),
+              list(0.1, 5),
+              list(1, 7),
+              list(10, 10),
+              list(100, 15)
+            )
+          ),
+          circle_color = list(
+            "property" = "size_category",
+            "type" = "categorical",
+            "stops" = list(
+              list("Tiny (< 1kg)", "#4A5568"),
+              list("Small (1-5kg)", "#F7DC6F"),
+              list("Medium (5-20kg)", "#F39C12"),
+              list("Large (20kg-5t)", "#E74C3C"),
+              list("Massive (> 5t)", "#C0392B")
+            )
+          ),
+          circle_opacity = 0.7,
+          circle_stroke_width = 1,
+          circle_stroke_color = "#ffffff",
+          popup = "popup_text"
+        ) %>%
+        add_navigation_control(position = "top-left")
+    })
+  })
 
   # Quick stats
   output$quick_stats <- renderText({
@@ -495,38 +403,50 @@ server <- function(input, output, session) {
 
     where_clause <- isolate(build_where_clause())
 
-    stats <- dbGetQuery(
-      con,
-      sprintf(
-        "
-      SELECT 
-        COUNT(*) as total,
-        SUM(mass_tons) as total_mass,
-        MEDIAN(mass_tons) as med_mass_tons
-      FROM meteorites
-      WHERE %s
-    ",
-        where_clause
-      )
+    stats <- tryCatch(
+      {
+        dbGetQuery(
+          con,
+          sprintf(
+            "SELECT COUNT(*) as total, SUM(mass_tons) as total_mass, 
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY mass_tons) as med_mass_tons
+       FROM meteorites WHERE %s",
+            where_clause
+          )
+        )
+      },
+      error = function(e) {
+        showNotification(paste("Stats error:", e$message), type = "error")
+        data.frame(total = 0, total_mass = 0, med_mass_tons = 0)
+      }
     )
 
     if (stats$total == 0) {
       return("No meteorites match filters")
     }
 
-    heaviest <- dbGetQuery(
-      con,
-      sprintf(
-        "
-      SELECT name, mass_tons
-      FROM meteorites
-      WHERE %s
-      ORDER BY mass_tons DESC, catalog_id ASC
-      LIMIT 1
-    ",
-        where_clause
-      )
+    heaviest <- tryCatch(
+      {
+        dbGetQuery(
+          con,
+          sprintf(
+            "SELECT name, mass_tons FROM meteorites WHERE %s 
+       ORDER BY mass_tons DESC, catalog_id ASC LIMIT 1",
+            where_clause
+          )
+        )
+      },
+      error = function(e) {
+        data.frame(name = "Unknown", mass_tons = 0)
+      }
     )
+
+    # Special note for unknown years
+    note_text <- if (input$era_filter == "unknown") {
+      "\n(Unknown discovery years)"
+    } else {
+      ""
+    }
 
     paste0(
       "Meteorites: ",
@@ -536,26 +456,30 @@ server <- function(input, output, session) {
       "\nMedian Mass: ",
       format_mass(stats$med_mass_tons),
       "\nHeaviest: ",
-      heaviest$name
+      heaviest$name,
+      note_text
     )
   })
 
-  # Mass distribution
+  # Mass distribution (same as before)
   output$mass_histogram <- renderPlotly({
     input$apply_filters
 
     where_clause <- isolate(build_where_clause())
 
-    data <- dbGetQuery(
-      con,
-      sprintf(
-        "
-      SELECT mass_tons, size_category
-      FROM meteorites
-      WHERE %s
-    ",
-        where_clause
-      )
+    data <- tryCatch(
+      {
+        dbGetQuery(
+          con,
+          sprintf(
+            "SELECT mass_tons, size_category FROM meteorites WHERE %s",
+            where_clause
+          )
+        )
+      },
+      error = function(e) {
+        data.frame(mass_tons = numeric(0), size_category = character(0))
+      }
     )
 
     if (nrow(data) == 0) {
@@ -580,15 +504,8 @@ server <- function(input, output, session) {
       nbinsx = 50
     ) %>%
       layout(
-        xaxis = list(
-          title = "Mass (tons)",
-          type = "log10",
-          showgrid = FALSE
-        ),
-        yaxis = list(
-          title = "Count",
-          showgrid = FALSE
-        ),
+        xaxis = list(title = "Mass (tons)", type = "log10", showgrid = FALSE),
+        yaxis = list(title = "Count", showgrid = FALSE),
         margin = list(l = 40, r = 10, t = 10, b = 40),
         paper_bgcolor = 'rgba(0,0,0,0)',
         plot_bgcolor = 'rgba(0,0,0,0)',
@@ -597,102 +514,33 @@ server <- function(input, output, session) {
       config(displayModeBar = FALSE)
   })
 
-  # Initialize map
-  output$map <- renderMaplibre({
-    maplibre(
-      center = c(11, -11),
-      zoom = 1,
-      style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-      projection = "mercator"
-    ) |>
-      add_vector_source(
-        id = "meteorites",
-        tiles = paste0(
-          "http://127.0.0.1:",
-          TILE_SERVER_PORT,
-          "/tiles/{z}/{x}/{y}.pbf"
-        ),
-        minzoom = 0,
-        maxzoom = 14
-      ) |>
-      add_circle_layer(
-        id = "meteorites-circles",
-        source = "meteorites",
-        source_layer = "meteorites",
-        circle_radius = list(
-          "property" = "mass_tons",
-          "type" = "exponential",
-          "base" = 1.5,
-          "stops" = list(
-            list(0.001, 3), # Tiny meteorites
-            list(0.1, 5), # Small
-            list(1, 7), # Medium
-            list(10, 10), # Large
-            list(100, 15) # Massive
-          )
-        ),
-        circle_color = list(
-          "property" = "size_category",
-          "type" = "categorical",
-          "stops" = list(
-            list("Tiny (< 1kg)", "#4A5568"),
-            list("Small (1-5kg)", "#F7DC6F"),
-            list("Medium (5-20kg)", "#F39C12"),
-            list("Large (20kg-5t)", "#E74C3C"),
-            list("Massive (> 5t)", "#C0392B")
-          )
-        ),
-        circle_opacity = 0.8,
-        circle_stroke_width = 1,
-        circle_stroke_color = "#ffffff",
-        popup = "info",
-        hover_options = list(
-          circle_radius = 12,
-          circle_opacity = 1
-        )
-      ) |>
-      add_navigation_control(position = "top-left")
-  })
-
-  # Reload tiles when filters applied
-  observeEvent(input$apply_filters, {
-    maplibre_proxy("map") |>
-      set_layout_property("meteorites-circles", "visibility", "none")
-
-    Sys.sleep(0.1)
-
-    maplibre_proxy("map") |>
-      set_layout_property("meteorites-circles", "visibility", "visible")
-  })
-
   # Reset filters
   observeEvent(input$reset_filters, {
-    updateSliderInput(
-      session,
-      "year_range",
-      value = c(metadata$min_year, metadata$max_year)
-    )
     updateSelectInput(session, "discovery_filter", selected = "all")
     updateTextInput(session, "name_search", value = "")
-    updateSelectInput(session, "size_filter", selected = "Large (20kg-5t)")
-    updateSelectInput(session, "era_filter", selected = "all")
+    updateSelectInput(session, "size_filter", selected = "all")
+    updateSelectInput(session, "era_filter", selected = "all") # Updated value
   })
 
   # Timeline modal
   observeEvent(input$show_timeline, {
     where_clause <- build_where_clause()
 
-    data <- dbGetQuery(
-      con,
-      sprintf(
-        "
-      SELECT name, mass_tons, year, lat, lon, era, reclass
-      FROM meteorites
-      WHERE %s
-      LIMIT 10000
-    ",
-        where_clause
-      )
+    data <- tryCatch(
+      {
+        dbGetQuery(
+          con,
+          sprintf(
+            "SELECT name, mass_tons, year, lat, lon, era, reclass
+         FROM meteorites WHERE %s LIMIT 10000",
+            where_clause
+          )
+        )
+      },
+      error = function(e) {
+        showNotification("Error loading timeline data", type = "error")
+        return()
+      }
     )
 
     if (nrow(data) > 0) {
@@ -745,17 +593,21 @@ server <- function(input, output, session) {
   observeEvent(input$show_table, {
     where_clause <- build_where_clause()
 
-    data <- dbGetQuery(
-      con,
-      sprintf(
-        "
-      SELECT name, mass_tons, nametype, reclass, year, fall, era, lat, lon, lpi_entry, mass
-      FROM meteorites
-      WHERE %s
-      LIMIT 5000
-    ",
-        where_clause
-      )
+    data <- tryCatch(
+      {
+        dbGetQuery(
+          con,
+          sprintf(
+            "SELECT name, mass_tons, nametype, reclass, year, fall, era, lat, lon, lpi_entry, mass
+         FROM meteorites WHERE %s LIMIT 5000",
+            where_clause
+          )
+        )
+      },
+      error = function(e) {
+        showNotification("Error loading table data", type = "error")
+        return()
+      }
     )
 
     if (nrow(data) > 0) {
@@ -819,10 +671,6 @@ server <- function(input, output, session) {
 
   # Cleanup
   onStop(function() {
-    if (!is.null(tile_server)) {
-      message("Stopping tile server...")
-      stopDaemonizedServer(tile_server)
-    }
     message("Disconnecting from DuckDB...")
     dbDisconnect(con, shutdown = TRUE)
   })
