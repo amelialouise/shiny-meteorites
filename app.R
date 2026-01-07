@@ -523,7 +523,7 @@ server <- function(input, output, session) {
     updateSelectInput(session, "discovery_filter", selected = "all")
     updateTextInput(session, "name_search", value = "")
     updateSelectInput(session, "size_filter", selected = "all")
-    updateSelectInput(session, "era_filter", selected = "all") # Updated value
+    updateSelectInput(session, "era_filter", selected = "recent") # keep small for performance
   })
 
   # Timeline modal
