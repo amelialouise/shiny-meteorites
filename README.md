@@ -142,10 +142,9 @@ Serve interactive queries against the optimized database:
 |----------|-----------------|----------------|------------------------------|
 | Download | 5-10 minutes    | ~0.8MB Parquet | Compressed parquet file      |
 | Build    | <1 second       | ~3.5MB DuckDB  | Pre-computed aggregations    |
-| Runtime  | <1 second       | Interactive    | Direct coordinate rendering  |
+| Runtime  | ~5 seconds      | Interactive    | Direct coordinate rendering  |
 
 Total Build Time: ~5-10 minutes
-Runtime Performance: Sub-second response for any filter combination!
 
 The app renders meteorites directly as map markers using their lat/lon coordinates without requiring spatial query operations.
 

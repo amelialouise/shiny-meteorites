@@ -7,6 +7,7 @@ library(DT)
 library(plotly)
 library(sf)
 library(mapgl) # Load mapgl last to prioritize its functions
+library(pool)
 
 
 # ============================================================================
@@ -166,7 +167,7 @@ ui <- page_fillable(
           "Late Modern (1950-1999)" = "late_modern",
           "Recent (2000+)" = "recent"
         ),
-        selected = "late_modern" # Make sure this matches a valid choice
+        selected = "late_modern" # sets the default
       ),
 
       textInput("name_search", "Name:", value = "", placeholder = "Search..."),
@@ -275,7 +276,6 @@ server <- function(input, output, session) {
       cat("Using fallback condition\n")
     }
 
-    # Debug: print the year condition
     # Always include mass filter since unknown years do have mass data
     conditions <- c(year_condition, "mass_tons > 0")
 
@@ -343,86 +343,68 @@ server <- function(input, output, session) {
     )
   })
 
-  # Initialize and update map
+  # Initialize map ONCE and cache it based on data
   output$map <- renderMaplibre({
-    maplibre(
-      center = c(11, -11),
-      zoom = 1,
-      style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-      projection = "mercator"
-    ) %>%
-      add_navigation_control(position = "top-left")
-  })
-
-  # Update map when data changes
-  # Update map when data changes
-  observeEvent(get_map_data(), {
     data <- get_map_data()
 
     if (nrow(data) == 0) {
-      return()
+      return(
+        maplibre(
+          center = c(11, -11),
+          zoom = 1,
+          style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+          projection = "mercator"
+        ) %>%
+          add_navigation_control(position = "top-left")
+      )
     }
 
-    # Simple approach: recreate the map with new data
-    output$map <- renderMaplibre({
-      if (nrow(data) == 0) {
-        return(
-          maplibre(
-            center = c(11, -11),
-            zoom = 1,
-            style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-            projection = "mercator"
-          ) %>%
-            add_navigation_control(position = "top-left")
-        )
-      }
+    # Convert to sf object
+    data_sf <- data %>%
+      filter(!is.na(lon), !is.na(lat)) %>%
+      sf::st_as_sf(coords = c("lon", "lat"), crs = 4326)
 
-      # Convert to sf object
-      data_sf <- data %>%
-        filter(!is.na(lon), !is.na(lat)) %>%
-        sf::st_as_sf(coords = c("lon", "lat"), crs = 4326)
-
-      maplibre(
-        center = c(mean(data$lon, na.rm = TRUE), mean(data$lat, na.rm = TRUE)),
-        zoom = 2,
-        style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-        projection = "mercator"
+    maplibre(
+      center = c(mean(data$lon, na.rm = TRUE), mean(data$lat, na.rm = TRUE)),
+      zoom = 2,
+      style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+      projection = "mercator"
+    ) %>%
+      add_source(id = "meteorites", data = data_sf) %>%
+      add_circle_layer(
+        id = "meteorites-circles",
+        source = "meteorites",
+        circle_radius = list(
+          "property" = "mass_tons",
+          "type" = "exponential",
+          "base" = 1.9,
+          "stops" = list(
+            list(0.001, 3),
+            list(0.1, 5),
+            list(1, 7),
+            list(10, 10),
+            list(100, 15)
+          )
+        ),
+        circle_color = list(
+          "property" = "size_category",
+          "type" = "categorical",
+          "stops" = list(
+            list("Tiny (< 1kg)", "#f3ad3dff"), # Light sandstone
+            list("Small (1-5kg)", "#CD853F"), # Peru/bronze
+            list("Medium (5-20kg)", "#B8860B"), # Dark goldenrod
+            list("Large (20kg-5t)", "#FF6347"), # Tomato/coral
+            list("Massive (> 5t)", "#FF1493") # Deep pink/magenta
+          )
+        ),
+        circle_opacity = 0.7,
+        circle_stroke_width = 1,
+        circle_stroke_color = "#0a0808ff",
+        popup = "popup_text"
       ) %>%
-        add_source(id = "meteorites", data = data_sf) %>%
-        add_circle_layer(
-          id = "meteorites-circles",
-          source = "meteorites",
-          circle_radius = list(
-            "property" = "mass_tons",
-            "type" = "exponential",
-            "base" = 1.5,
-            "stops" = list(
-              list(0.001, 3),
-              list(0.1, 5),
-              list(1, 7),
-              list(10, 10),
-              list(100, 15)
-            )
-          ),
-          circle_color = list(
-            "property" = "size_category",
-            "type" = "categorical",
-            "stops" = list(
-              list("Tiny (< 1kg)", "#4A5568"),
-              list("Small (1-5kg)", "#F7DC6F"),
-              list("Medium (5-20kg)", "#F39C12"),
-              list("Large (20kg-5t)", "#E74C3C"),
-              list("Massive (> 5t)", "#C0392B")
-            )
-          ),
-          circle_opacity = 0.7,
-          circle_stroke_width = 1,
-          circle_stroke_color = "#ffffff",
-          popup = "popup_text"
-        ) %>%
-        add_navigation_control(position = "top-left")
-    })
-  })
+      add_navigation_control(position = "top-left")
+  }) %>%
+    bindCache(get_map_data()) # This prevents re-rendering with identical data
 
   # Quick stats
   output$quick_stats <- renderText({
@@ -691,7 +673,7 @@ server <- function(input, output, session) {
     }
   })
 
-  # At the end of your server function, add:
+  # Clean up
   onStop(function() {
     message("App stopping - cleaning up database connection...")
     if (!is.null(con) && dbIsValid(con)) {
