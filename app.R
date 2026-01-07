@@ -7,8 +7,6 @@ library(DT)
 library(plotly)
 library(sf)
 library(mapgl) # Load mapgl last to prioritize its functions
-library(pool)
-
 
 # ============================================================================
 # Configuration
