@@ -6,34 +6,6 @@ An interactive R Shiny application for exploring meteorite landings data from NA
 
 [Live on Posit Connect Cloud!](https://doodles-rocks-from-space.share.connect.posit.cloud)
 
-## Posit Connect Cloud Architectural Changes
-### Mapping Engine Redesign
-
-**From**: Vector tiles + custom HTTP server + complex coordinate transformations
-**To**: Direct sf object rendering + circle layers + simplified coordinate handling
-**Result**: ~500 lines of tile server code removed, zero external dependencies
-
-### Database Connection Architecture
-
-Implemented auto-reconnecting database layer via,
-
-```{r}
-ensure_connection <- function() {
-  if (is.null(con) || !dbIsValid(con)) {
-    con <<- dbConnect(duckdb(), DB_PATH, read_only = TRUE) # global assignment hack tbh
-  }
-  return(con)
-}
-```
-
-This handles:
-
-* User sessions timing out  
-* Platform connection recycling  
-* Network hiccups  
-* Database restarts  
-* Concurrent user access  
-
 ## App Features
 
 -   **Interactive Global Map**: View 32,050 meteorite landing locations worldwide with size-based markers and color-coded mass categories
@@ -100,6 +72,35 @@ Rscript ./build_indexed_db.R
 ```r
 shiny::runApp("Shiny")
 ```
+
+
+## Posit Connect Cloud Architectural Changes
+### Mapping Engine Redesign
+
+**From**: Vector tiles + custom HTTP server + spatial complexity  
+**To**: Direct sf object rendering + circle layers + simplified coordinate handling  
+**Result**: ~500 lines of tile server code removed, zero external dependencies  
+
+### Database Connection Management 
+
+Implemented auto-reconnecting database layer via,
+
+```{r}
+ensure_connection <- function() {
+  if (is.null(con) || !dbIsValid(con)) {
+    con <<- dbConnect(duckdb(), DB_PATH, read_only = TRUE) # global assignment hack tbh
+  }
+  return(con)
+}
+```
+
+This handles:
+
+* User sessions timing out  
+* Platform connection recycling  
+* Network hiccups  
+* Database restarts  
+* Concurrent user access  
 
 ## Multi-Stage ETL with DuckDB
 
