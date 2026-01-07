@@ -261,12 +261,12 @@ server <- function(input, output, session) {
     year_condition <- switch(
       input$era_filter,
       "all" = "1=1",
-      "unknown" = "year IS NULL",
-      "ancient" = "year BETWEEN 861 AND 1799",
-      "historical" = "year BETWEEN 1800 AND 1899",
-      "early_modern" = "year BETWEEN 1900 AND 1949",
-      "late_modern" = "year BETWEEN 1950 AND 1999",
-      "recent" = "year >= 2000"
+      "unknown" = "era IS NULL", # For meteorites with NULL years
+      "ancient" = "era = 'Ancient (pre-1800)'",
+      "historical" = "era = 'Historical (1800-1899)'",
+      "early_modern" = "era = 'Early Modern (1900-1949)'",
+      "late_modern" = "era = 'Late Modern (1950-1999)'",
+      "recent" = "era = 'Recent (2000+)'"
     )
 
     # If switch returned NULL (no match), use fallback
@@ -316,8 +316,7 @@ server <- function(input, output, session) {
             "SELECT name, lat, lon, mass_tons, year, size_category, catalog_id, reclass, era, fall, lpi_entry
        FROM meteorites 
        WHERE %s 
-       ORDER BY mass_tons DESC
-       LIMIT 8000",
+       ORDER BY mass_tons DESC",
             where_clause
           )
         )
