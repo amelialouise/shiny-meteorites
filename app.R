@@ -48,12 +48,43 @@ get_marker_size <- function(mass_tons) {
 # ============================================================================
 
 message("Connecting to DuckDB: ", DB_PATH)
-con <- dbConnect(duckdb(), DB_PATH, read_only = TRUE)
-dbExecute(con, "INSTALL spatial;")
-dbExecute(con, "LOAD spatial;")
+# Global connection variable
+con <- NULL
 
-metadata <- dbGetQuery(
-  con,
+# Function to ensure connection is valid
+ensure_connection <- function() {
+  if (is.null(con) || !dbIsValid(con)) {
+    message("Reconnecting to database...")
+    if (!is.null(con)) {
+      try(dbDisconnect(con), silent = TRUE)
+    }
+    con <<- dbConnect(duckdb(), DB_PATH, read_only = TRUE)
+    dbExecute(con, "INSTALL spatial;")
+    dbExecute(con, "LOAD spatial;")
+  }
+  return(con)
+}
+
+# Safe query function
+safe_db_query <- function(query, default = data.frame()) {
+  tryCatch(
+    {
+      conn <- ensure_connection()
+      dbGetQuery(conn, query)
+    },
+    error = function(e) {
+      message("Database error: ", e$message)
+      showNotification(
+        paste("Database error:", e$message),
+        type = "error",
+        duration = 5
+      )
+      return(default)
+    }
+  )
+}
+
+metadata <- safe_db_query(
   "SELECT MIN(year) as min_year, MAX(year) as max_year, COUNT(*) as total_count FROM meteorites"
 )
 
@@ -282,8 +313,7 @@ server <- function(input, output, session) {
 
     tryCatch(
       {
-        data <- dbGetQuery(
-          con,
+        data <- safe_db_query(
           sprintf(
             "SELECT name, lat, lon, mass_tons, year, size_category, catalog_id, reclass, era, fall, lpi_entry
        FROM meteorites 
@@ -405,8 +435,7 @@ server <- function(input, output, session) {
 
     stats <- tryCatch(
       {
-        dbGetQuery(
-          con,
+        safe_db_query(
           sprintf(
             "SELECT COUNT(*) as total, SUM(mass_tons) as total_mass, 
        percentile_cont(0.5) WITHIN GROUP (ORDER BY mass_tons) as med_mass_tons
@@ -427,8 +456,7 @@ server <- function(input, output, session) {
 
     heaviest <- tryCatch(
       {
-        dbGetQuery(
-          con,
+        safe_db_query(
           sprintf(
             "SELECT name, mass_tons FROM meteorites WHERE %s 
        ORDER BY mass_tons DESC, catalog_id ASC LIMIT 1",
@@ -469,8 +497,7 @@ server <- function(input, output, session) {
 
     data <- tryCatch(
       {
-        dbGetQuery(
-          con,
+        safe_db_query(
           sprintf(
             "SELECT mass_tons, size_category FROM meteorites WHERE %s",
             where_clause
@@ -528,8 +555,7 @@ server <- function(input, output, session) {
 
     data <- tryCatch(
       {
-        dbGetQuery(
-          con,
+        safe_db_query(
           sprintf(
             "SELECT name, mass_tons, year, lat, lon, era, reclass
          FROM meteorites WHERE %s LIMIT 10000",
@@ -595,8 +621,7 @@ server <- function(input, output, session) {
 
     data <- tryCatch(
       {
-        dbGetQuery(
-          con,
+        safe_db_query(
           sprintf(
             "SELECT name, mass_tons, nametype, reclass, year, fall, era, lat, lon, lpi_entry, mass
          FROM meteorites WHERE %s LIMIT 5000",
@@ -669,10 +694,20 @@ server <- function(input, output, session) {
     }
   })
 
-  # Cleanup
+  # At the end of your server function, add:
   onStop(function() {
-    message("Disconnecting from DuckDB...")
-    dbDisconnect(con, shutdown = TRUE)
+    message("App stopping - cleaning up database connection...")
+    if (!is.null(con) && dbIsValid(con)) {
+      try(
+        {
+          dbDisconnect(con, shutdown = TRUE)
+          message("Database connection closed successfully")
+        },
+        silent = TRUE
+      )
+    } else {
+      message("No valid connection to close")
+    }
   })
 }
 
