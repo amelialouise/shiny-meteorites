@@ -340,21 +340,11 @@ ui <- page_fillable(
 server <- function(input, output, session) {
   # Helper function to format mass
   format_mass <- function(mass_tons) {
-    mass_mg <- mass_tons * 1e9
-    mass_g <- mass_tons * 1e6
-    mass_kg <- mass_tons * 1e3
-    ifelse(
-      mass_mg < 1e3,
-      paste0(round(mass_mg, 1), " mg"),
-      ifelse(
-        mass_g < 1e3,
-        paste0(round(mass_g, 1), " g"),
-        ifelse(
-          mass_kg < 1e3,
-          paste0(round(mass_kg, 1), " kg"),
-          paste0(round(mass_tons, 1), " tons")
-        )
-      )
+    case_when(
+      mass_tons * 1e9 < 1e3 ~ paste0(round(mass_tons * 1e9, 1), " mg"),
+      mass_tons * 1e6 < 1e3 ~ paste0(round(mass_tons * 1e6, 1), " g"),
+      mass_tons * 1e3 < 1e3 ~ paste0(round(mass_tons * 1e3, 1), " kg"),
+      .default = paste0(round(mass_tons, 1), " tons")
     )
   }
 
@@ -604,7 +594,7 @@ server <- function(input, output, session) {
       zoom = 1,
       style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
       projection = "mercator"
-    ) |>
+    ) %>%
       add_vector_source(
         id = "meteorites",
         tiles = paste0(
@@ -614,7 +604,7 @@ server <- function(input, output, session) {
         ),
         minzoom = 0,
         maxzoom = 14
-      ) |>
+      ) %>%
       add_circle_layer(
         id = "meteorites-circles",
         source = "meteorites",
@@ -650,18 +640,18 @@ server <- function(input, output, session) {
           circle_radius = 12,
           circle_opacity = 1
         )
-      ) |>
+      ) %>%
       add_navigation_control(position = "top-left")
   })
 
   # Reload tiles when filters applied
   observeEvent(input$apply_filters, {
-    maplibre_proxy("map") |>
+    maplibre_proxy("map") %>%
       set_layout_property("meteorites-circles", "visibility", "none")
 
     Sys.sleep(0.1)
 
-    maplibre_proxy("map") |>
+    maplibre_proxy("map") %>%
       set_layout_property("meteorites-circles", "visibility", "visible")
   })
 
