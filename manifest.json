@@ -2647,6 +2647,33 @@
         "RemoteSha": "1.12.1"
       }
     },
+    "shinyjs": {
+      "Source": "CRAN",
+      "Repository": "https://packagemanager.posit.co/cran/latest",
+      "description": {
+        "Package": "shinyjs",
+        "Title": "Easily Improve the User Experience of Your Shiny Apps in Seconds",
+        "Version": "2.1.0",
+        "Authors@R": "person(\"Dean\", \"Attali\", \n    email = \"daattali@gmail.com\",\n    role = c(\"aut\", \"cre\"),\n    comment= c(ORCID=\"0000-0002-5645-3493\"))",
+        "Description": "Perform common useful JavaScript operations in Shiny apps that will\n    greatly improve your apps without having to know any JavaScript. Examples\n    include: hiding an element, disabling an input, resetting an input back to\n    its original value, delaying code execution by a few seconds, and many more\n    useful functions for both the end user and the developer. 'shinyjs' can also\n    be used to easily call your own custom JavaScript functions from R.",
+        "URL": "https://deanattali.com/shinyjs/",
+        "BugReports": "https://github.com/daattali/shinyjs/issues",
+        "Depends": "R (>= 3.1.0)",
+        "Imports": "digest (>= 0.6.8), jsonlite, shiny (>= 1.0.0)",
+        "Suggests": "htmltools (>= 0.2.9), knitr (>= 1.7), rmarkdown, shinyAce,\nshinydisconnect, testthat (>= 0.9.1)",
+        "License": "MIT + file LICENSE",
+        "VignetteBuilder": "knitr",
+        "RoxygenNote": "7.1.1",
+        "Encoding": "UTF-8",
+        "NeedsCompilation": "no",
+        "Packaged": "2021-12-21 11:32:22 UTC; Dean-X1C",
+        "Author": "Dean Attali [aut, cre] (<https://orcid.org/0000-0002-5645-3493>)",
+        "Maintainer": "Dean Attali <daattali@gmail.com>",
+        "Repository": "RSPM",
+        "Date/Publication": "2021-12-23 10:10:02 UTC",
+        "Built": "R 4.5.0; ; 2025-04-06 04:48:03 UTC; unix"
+      }
+    },
     "sourcetools": {
       "Source": "CRAN",
       "Repository": "https://packagemanager.posit.co/cran/latest",
@@ -3257,7 +3284,7 @@
   },
   "files": {
     ".posit/publish/deployments/deployment-AV4Q.toml": {
-      "checksum": "0941ca77513704b9d1377a793f93a56d"
+      "checksum": "a4190087820d72d65eb8d74684f013c8"
     },
     ".posit/publish/deployments/renv.lock": {
       "checksum": "bffa27a1e0e7c4a5285fa86ca42e12c3"
@@ -3266,7 +3293,7 @@
       "checksum": "8670d774bf7507ad7812c3c1c5203b15"
     },
     ".Rprofile": {
-      "checksum": "b8e7e969c111bfc4aab6990b8fb99167"
+      "checksum": "0e796d99c9d44cec7a5e854eb2ea2d7e"
     },
     ".vscode/extensions.json": {
       "checksum": "90d7891f1569632ae447aaa2d080d5c7"
@@ -3278,34 +3305,43 @@
       "checksum": "d41d8cd98f00b204e9800998ecf8427e"
     },
     "app.R": {
-      "checksum": "69eebf157af3cd69c4d30ab4ad5c97ea"
+      "checksum": "f0b310ef02f07ddb16b63c76a50fbe95"
     },
-    "data/meteorites_spatial.duckdb": {
-      "checksum": "aa873d9a9da3c5890f569911c5333fb4"
+    "data/meteorites.duckdb": {
+      "checksum": "66f460c4f51da38ea259ab3be33cae40"
     },
     "data/meteorites.parquet": {
       "checksum": "7257f4a808eb3a4d01b302b777d49882"
     },
     "images/meteorites-explorer-screenshot.png": {
-      "checksum": "2ad0fabb45979f3d0cc53db25c16a6e1"
+      "checksum": "ea030e3805722610b41c0560056a04c9"
     },
     "LICENSE": {
       "checksum": "3d72a590b89e4d918763e6325bdf0f42"
     },
     "R/build_indexed_db.R": {
-      "checksum": "2ee0eb3a88dcde93f8eec34d6bc0f550"
+      "checksum": "2ef4631760d21e53b83e011f4ddf5c27"
     },
     "R/download_meteorites.R": {
       "checksum": "cef847822d3102646d5941112f819680"
     },
     "README.md": {
-      "checksum": "6300bda31a499126ad9215ff2592319d"
+      "checksum": "390f064f36660371dd68fa6d2acedd4d"
     },
     "renv.lock": {
-      "checksum": "c0d382aad4cd5f4eda7818e6181b1b38"
+      "checksum": "7f5aa967d27fd1d8b6385e0ac71dca4f"
+    },
+    "sandbox/app-deploy.R": {
+      "checksum": "a9871ec61687dff9f6965f428043e5f7"
+    },
+    "sandbox/keep-focus-app.R": {
+      "checksum": "8b9ba047df2ac98cc528424226825952"
     },
     "sandbox/old-app.R": {
       "checksum": "02e244ff0d23a1dabf1bf8aa14c8b20f"
+    },
+    "sandbox/toggle-app.R": {
+      "checksum": "8f50a558cf159ee60610e3253a62501a"
     }
   },
   "users": null
