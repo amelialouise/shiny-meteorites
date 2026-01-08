@@ -7,6 +7,7 @@ library(DT)
 library(plotly)
 library(sf)
 library(mapgl) # Load mapgl last to prioritize its functions
+library(shinyjs)
 
 # ============================================================================
 # Configuration
@@ -106,6 +107,8 @@ ui <- page_fillable(
   ),
   padding = 0,
 
+  useShinyjs(), # needed to toggle the sidebar panel
+
   tags$head(
     tags$style(HTML(
       "
@@ -124,6 +127,75 @@ ui <- page_fillable(
         color: #667eea;
         font-size: 1.1em;
       }
+
+ /* Panel container that moves as one unit */
+      .panel-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        transition: transform 0.3s ease-in-out;
+      }
+      
+      .panel-container.collapsed {
+        transform: translateX(320px);
+      }
+      
+      /* Panel styles */
+      .side-panel {
+        width: 280px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-height: 90vh;
+        overflow-y: auto;
+        position: relative;
+      }
+      
+      .panel-content {
+        padding: 20px;
+      }
+      
+      /* Panel handle attached to the panel */
+      .panel-handle {
+        position: absolute;
+        left: -40px;
+        top: 60%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 60px;
+        background: #ffffffff;
+        border: none;
+        border-radius: 8px 0 0 8px;
+        color: white;
+        font-size: 16px;
+        cursor: pointer;
+        z-index: 1001;
+        transition: background 0.3s ease, box-shadow 0.3s ease;
+        box-shadow: -2px 0 8px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      .panel-handle:hover {
+        background: #818290ff;
+        box-shadow: -4px 0 12px rgba(0,0,0,0.25);
+      }
+      
+      .panel-handle:focus {
+        outline: none;
+        box-shadow: -2px 0 8px rgba(0,0,0,0.15), 0 0 0 3px rgba(102, 126, 234, 0.3);
+      }
+      
+      /* Handle changes color when panel is collapsed */
+      .panel-container.collapsed .panel-handle {
+        background: #a72889ff;
+      }
+      
+      .panel-container.collapsed .panel-handle:hover {
+        background: #701e7eff;
+      }
     "
     ))
   ),
@@ -139,112 +211,131 @@ ui <- page_fillable(
     )
   ),
 
-  absolutePanel(
-    top = 20,
-    right = 20,
-    width = 360,
-    class = "card shadow",
-    style = "background: white; border-radius: 8px; padding: 20px; max-height: 90vh; overflow-y: auto;",
+  # Panel container with handle - moves as one unit
+  div(
+    id = "panel_container",
+    class = "panel-container",
 
-    h4("🌌 Meteorite Explorer", class = "mb-3"),
+    # Panel handle
+    actionButton(
+      "toggle_panel",
+      "►", # Start with right arrow since panel is initially open
+      class = "panel-handle",
+      title = "Toggle Control Panel"
+    ),
 
     div(
-      class = "filter-section",
-      h5("🔍 Click 'Apply Filters' to update the map"),
+      class = "side-panel",
 
-      # Era filter
-      selectInput(
-        "era_filter",
-        "Time Period:",
-        choices = c(
-          "All Eras" = "all",
-          "Unknown/Missing Years" = "unknown",
-          "Ancient (861-1799)" = "ancient",
-          "Historical (1800-1899)" = "historical",
-          "Early Modern (1900-1949)" = "early_modern",
-          "Late Modern (1950-1999)" = "late_modern",
-          "Recent (2000+)" = "recent"
+      div(
+        class = "panel-content",
+
+        h4("🌌 Meteorite Explorer", class = "mb-3"),
+
+        div(
+          class = "filter-section",
+          h5("🔍 Click 'Apply Filters' to update the map"),
+
+          # Era filter
+          selectInput(
+            "era_filter",
+            "Time Period:",
+            choices = c(
+              "All Eras" = "all",
+              "Unknown/Missing Years" = "unknown",
+              "Ancient (861-1799)" = "ancient",
+              "Historical (1800-1899)" = "historical",
+              "Early Modern (1900-1949)" = "early_modern",
+              "Late Modern (1950-1999)" = "late_modern",
+              "Recent (2000+)" = "recent"
+            ),
+            selected = "late_modern" # sets the default
+          ),
+
+          textInput(
+            "name_search",
+            "Name:",
+            value = "",
+            placeholder = "Search..."
+          ),
+
+          selectInput(
+            "discovery_filter",
+            "Discovery:",
+            choices = c("All" = "all", "Fell" = "Fell", "Found" = "Found"),
+            selected = "all"
+          ),
+
+          selectInput(
+            "size_filter",
+            "Size:",
+            choices = size_categories,
+            selected = "Large (20kg-5t)"
+          ),
+
+          actionButton(
+            "apply_filters",
+            "Apply Filters",
+            class = "btn-primary w-100 mb-2"
+          ),
+          actionButton(
+            "reset_filters",
+            "Reset",
+            class = "btn-outline-secondary w-100"
+          )
         ),
-        selected = "late_modern" # sets the default
-      ),
 
-      textInput("name_search", "Name:", value = "", placeholder = "Search..."),
+        hr(),
 
-      selectInput(
-        "discovery_filter",
-        "Discovery:",
-        choices = c("All" = "all", "Fell" = "Fell", "Found" = "Found"),
-        selected = "all"
-      ),
+        div(
+          class = "stats-panel",
+          h5("📊 Statistics"),
+          verbatimTextOutput("quick_stats", placeholder = TRUE)
+        ),
 
-      selectInput(
-        "size_filter",
-        "Size:",
-        choices = size_categories,
-        selected = "Large (20kg-5t)"
-      ),
+        hr(),
 
-      actionButton(
-        "apply_filters",
-        "Apply Filters",
-        class = "btn-primary w-100 mb-2"
-      ),
-      actionButton(
-        "reset_filters",
-        "Reset",
-        class = "btn-outline-secondary w-100"
-      )
-    ),
+        div(
+          class = "stats-panel",
+          h5("📊 Mass Distribution"),
+          plotlyOutput("mass_histogram", height = "180px")
+        ),
 
-    hr(),
+        hr(),
 
-    div(
-      class = "stats-panel",
-      h5("📊 Statistics"),
-      verbatimTextOutput("quick_stats", placeholder = TRUE)
-    ),
+        div(
+          class = "stats-panel",
+          h5("📖 About"),
+          tags$p(
+            style = "font-size: 0.9em; margin-bottom: 8px;",
+            "Data from ",
+            tags$a(
+              "NASA's Meteorite Database",
+              href = "https://data.nasa.gov/dataset/meteorite-landings",
+              target = "_blank"
+            )
+          ),
+          tags$p(
+            style = "font-size: 0.9em; margin: 0;",
+            "Total: ",
+            format(metadata$total_count, big.mark = ","),
+            " meteorites"
+          )
+        ),
 
-    hr(),
+        hr(),
 
-    div(
-      class = "stats-panel",
-      h5("📊 Mass Distribution"),
-      plotlyOutput("mass_histogram", height = "180px")
-    ),
-
-    hr(),
-
-    div(
-      class = "stats-panel",
-      h5("📖 About"),
-      tags$p(
-        style = "font-size: 0.9em; margin-bottom: 8px;",
-        "Data from ",
-        tags$a(
-          "NASA's Meteorite Database",
-          href = "https://data.nasa.gov/dataset/meteorite-landings",
-          target = "_blank"
+        actionButton(
+          "show_timeline",
+          "📈 View Timeline",
+          class = "btn-outline-primary w-100 mb-2"
+        ),
+        actionButton(
+          "show_table",
+          "📋 View Data Table",
+          class = "btn-outline-primary w-100"
         )
-      ),
-      tags$p(
-        style = "font-size: 0.9em; margin: 0;",
-        "Total: ",
-        format(metadata$total_count, big.mark = ","),
-        " meteorites"
       )
-    ),
-
-    hr(),
-
-    actionButton(
-      "show_timeline",
-      "📈 View Timeline",
-      class = "btn-outline-primary w-100 mb-2"
-    ),
-    actionButton(
-      "show_table",
-      "📋 View Data Table",
-      class = "btn-outline-primary w-100"
     )
   )
 )
@@ -254,6 +345,26 @@ ui <- page_fillable(
 # ============================================================================
 
 server <- function(input, output, session) {
+  # Track panel state
+  panel_open <- reactiveVal(TRUE)
+
+  # Toggle panel visibility
+  observeEvent(input$toggle_panel, {
+    current_state <- panel_open()
+    new_state <- !current_state
+    panel_open(new_state)
+
+    if (new_state) {
+      # Show panel - arrow points right (indicating you can push it away)
+      removeClass("panel_container", "collapsed")
+      updateActionButton(session, "toggle_panel", label = "►")
+    } else {
+      # Hide panel - arrow points left (indicating you can pull it back)
+      addClass("panel_container", "collapsed")
+      updateActionButton(session, "toggle_panel", label = "◄")
+    }
+  })
+
   # Build WHERE clause function
   build_where_clause <- function() {
     # Handle era filtering with explicit year ranges
