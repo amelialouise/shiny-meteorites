@@ -6,14 +6,9 @@ python/
 sandbox/
 staging/
 
-# Data files (large, generated locally)
-*.duckdb
-*.duckdb.wal
-*.parquet
-data/
-
 # Deployments
 .posit
+data/*
 
 # misc en temp
 sandbox/
