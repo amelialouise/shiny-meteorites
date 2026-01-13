@@ -4,7 +4,7 @@ An interactive R Shiny application for exploring meteorite landings data from NA
 
 ![Shiny app screenshot](images/meteorites-explorer-screenshot.png)
 
-[Live on Posit Connect Cloud!](https://doodles-rocks-from-space.share.connect.posit.cloud)
+[Live on Posit Connect Cloud!](https://doodles-space-rocks.share.connect.posit.cloud)
 
 ## App Features
 
