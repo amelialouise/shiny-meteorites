@@ -51,7 +51,7 @@ message("Connecting to DuckDB: ", DB_PATH)
 # Global connection variable
 con <- NULL
 
-# Function to ensure connection is valid
+# Help ensure connection is valid
 ensure_connection <- function() {
   if (is.null(con) || !dbIsValid(con)) {
     message("Reconnecting to database...")
@@ -211,6 +211,15 @@ ui <- page_fillable(
     )
   ),
 
+  conditionalPanel(
+    condition = "output.viewport_active",
+    div(
+      class = "alert alert-info",
+      style = "margin-top: 10px; padding: 8px;",
+      "🔍 Showing meteorites in current view only. Zoom out to see more."
+    )
+  ),
+
   # Panel container with handle - moves as one unit
   div(
     id = "panel_container",
@@ -345,6 +354,43 @@ ui <- page_fillable(
 # ============================================================================
 
 server <- function(input, output, session) {
+  # Reactive values to track map state
+  map_state <- reactiveValues(
+    center = c(0, 20),
+    zoom = 2,
+    bounds = NULL
+  )
+  # Capture map state when user interacts with the map
+  observe({
+    # Update center
+    if (!is.null(input$map_center)) {
+      map_state$center <- c(input$map_center$lng, input$map_center$lat)
+    }
+
+    # Update zoom
+    if (!is.null(input$map_zoom)) {
+      map_state$zoom <- input$map_zoom
+    }
+
+    # Update bounds (bbox)
+    if (!is.null(input$map_bbox)) {
+      map_state$bounds <- list(
+        north = input$map_bbox[[4]],
+        south = input$map_bbox[[2]],
+        east = input$map_bbox[[3]],
+        west = input$map_bbox[[1]]
+      )
+    }
+  })
+
+  # # FOR DEBUGGING: See state updates in terminal
+  # observe({
+  #   cat("Map state - Center:", map_state$center, "Zoom:", map_state$zoom, "\n")
+  #   if (!is.null(map_state$bounds)) {
+  #     cat("Bounds:", map_state$bounds$west, "to", map_state$bounds$east, "\n")
+  #   }
+  # })
+
   # Track panel state
   panel_open <- reactiveVal(TRUE)
 
@@ -412,11 +458,32 @@ server <- function(input, output, session) {
     paste(conditions, collapse = " AND ")
   }
 
+  # Helper function to add viewport filtering
+  apply_viewport_filter <- function(where_clause) {
+    bounds <- map_state$bounds
+    zoom <- map_state$zoom
+
+    # Add spatial filter if bounds exist and zoom is > 4
+    if (!is.null(bounds) && !is.null(zoom) && zoom > 4) {
+      spatial_filter <- sprintf(
+        "AND lon BETWEEN %f AND %f AND lat BETWEEN %f AND %f",
+        bounds$west,
+        bounds$east,
+        bounds$south,
+        bounds$north
+      )
+      where_clause <- paste(where_clause, spatial_filter)
+    }
+
+    return(where_clause)
+  }
+
   # Get filtered data for map
   get_map_data <- reactive({
     input$apply_filters
 
     where_clause <- isolate(build_where_clause())
+    where_clause <- isolate(apply_viewport_filter(where_clause))
 
     tryCatch(
       {
@@ -452,15 +519,21 @@ server <- function(input, output, session) {
     )
   })
 
-  # Initialize map ONCE and cache it based on data
+  # Map output - re-renders but maintains position
   output$map <- renderMaplibre({
-    data <- get_map_data()
+    input$apply_filters # Trigger on filter changes
+
+    data <- isolate(get_map_data())
+
+    # Use stored state
+    center <- isolate(map_state$center)
+    zoom <- isolate(map_state$zoom)
 
     if (nrow(data) == 0) {
       return(
         maplibre(
-          center = c(11, -11),
-          zoom = 1,
+          center = center,
+          zoom = zoom,
           style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
           projection = "mercator"
         ) %>%
@@ -468,14 +541,13 @@ server <- function(input, output, session) {
       )
     }
 
-    # Convert to sf object
     data_sf <- data %>%
       filter(!is.na(lon), !is.na(lat)) %>%
-      sf::st_as_sf(coords = c("lon", "lat"), crs = 4326)
+      st_as_sf(coords = c("lon", "lat"), crs = 4326)
 
     maplibre(
-      center = c(mean(data$lon, na.rm = TRUE), mean(data$lat, na.rm = TRUE)),
-      zoom = 2,
+      center = center,
+      zoom = zoom,
       style = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
       projection = "mercator"
     ) %>%
@@ -512,14 +584,13 @@ server <- function(input, output, session) {
         popup = "popup_text"
       ) %>%
       add_navigation_control(position = "top-left")
-  }) %>%
-    bindCache(get_map_data()) # This prevents re-rendering with identical data
-
+  })
   # Quick stats
   output$quick_stats <- renderText({
     input$apply_filters
 
     where_clause <- isolate(build_where_clause())
+    where_clause <- isolate(apply_viewport_filter(where_clause))
 
     stats <- tryCatch(
       {
@@ -557,6 +628,17 @@ server <- function(input, output, session) {
       }
     )
 
+    # Access bounds from map_state
+    bounds <- isolate(map_state$bounds)
+    zoom <- isolate(map_state$zoom)
+
+    # Add note about viewport filtering
+    viewport_note <- if (!is.null(bounds) && !is.null(zoom) && zoom > 4) {
+      "\n(Showing current view only)"
+    } else {
+      ""
+    }
+
     # Special note for unknown years
     note_text <- if (input$era_filter == "unknown") {
       "\n(Unknown discovery years)"
@@ -573,15 +655,17 @@ server <- function(input, output, session) {
       format_mass(stats$med_mass_tons),
       "\nHeaviest: ",
       heaviest$name,
+      viewport_note,
       note_text
     )
   })
 
-  # Mass distribution (same as before)
+  # Mass distribution
   output$mass_histogram <- renderPlotly({
     input$apply_filters
 
     where_clause <- isolate(build_where_clause())
+    where_clause <- isolate(apply_viewport_filter(where_clause))
 
     data <- tryCatch(
       {
@@ -640,6 +724,7 @@ server <- function(input, output, session) {
   # Timeline modal
   observeEvent(input$show_timeline, {
     where_clause <- build_where_clause()
+    where_clause <- apply_viewport_filter(where_clause)
 
     data <- tryCatch(
       {
@@ -706,6 +791,7 @@ server <- function(input, output, session) {
   # Data table modal
   observeEvent(input$show_table, {
     where_clause <- build_where_clause()
+    where_clause <- apply_viewport_filter(where_clause)
 
     data <- tryCatch(
       {
